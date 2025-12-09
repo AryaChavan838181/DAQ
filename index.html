@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>F1 Telemetry Dashboard - WORKING</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+<style>
+:root{--bg:#1e1e1e;--sidebar:#252526;--border:#3c3c3c;--accent:#007acc;--text:#ccc;--text-light:#aaa;--card:#2d2d2d;--gap:12px;--radius:6px;}
+*{margin:0;padding:0;box-sizing:border-box;font-family:Segoe UI,Tahoma,sans-serif;}
+body{background:var(--bg);color:var(--text);height:100vh;display:flex;overflow:hidden;}
+.sidebar{width:60px;background:var(--sidebar);display:flex;flex-direction:column;align-items:center;padding:12px 0;border-right:1px solid var(--border);}
+.sidebar-icon{width:36px;height:36px;margin:8px 0;display:flex;align-items:center;justify-content:center;color:var(--text-light);font-size:1.4rem;cursor:pointer;border-radius:4px;transition:.2s;}
+.sidebar-icon:hover{background:rgba(255,255,255,.1);color:#fff;}
+.sidebar-icon.active{color:#fff;background:var(--accent);}
+.main{flex:1;display:flex;flex-direction:column;}
+.header{height:40px;background:var(--card);border-bottom:1px solid var(--border);padding:0 16px;display:flex;align-items:center;font-size:.9rem;color:var(--text-light);}
+.content{flex:1;display:grid;grid-template-columns:2fr 3fr;gap:var(--gap);padding:var(--gap);overflow:hidden;}
+.side-a{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:var(--gap);}
+.param-tile{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);display:flex;flex-direction:column;justify-content:center;align-items:center;position:relative;cursor:pointer;transition:.2s;}
+.param-tile:hover{border-color:var(--accent);}
+.param-tile.empty{color:var(--text-light);}
+.param-tile .add-btn{font-size:2rem;opacity:.5;}
+.param-tile .value{font-size:2.2rem;font-weight:600;margin-bottom:8px;}
+.param-tile .minmax{width:100%;display:flex;font-size:.8rem;border-top:1px solid var(--border);}
+.param-tile .minmax>div{flex:1;text-align:center;padding:6px 0;}
+.param-tile .minmax .min{border-right:1px solid var(--border);color:#f48771;}
+.param-tile .minmax .max{color:#7ec699;}
+.side-b{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:var(--gap);}
+.graph-container{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);position:relative;overflow:hidden;}
+.graph-header{height:32px;background:rgba(0,0,0,.2);display:flex;justify-content:space-between;align-items:center;padding:0 8px;font-size:.8rem;border-bottom:1px solid var(--border);}
+.graph-menu{display:flex;gap:4px;}
+.graph-menu button{background:none;border:none;color:var(--text-light);font-size:1rem;cursor:pointer;padding:4px;border-radius:3px;}
+.graph-menu button:hover{background:rgba(255,255,255,.1);color:#fff;}
+.graph-menu button.active{color:var(--accent);}
+.graph-placeholder{height:calc(100% - 32px);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-light);}
+.graph-placeholder .add-btn{font-size:2.5rem;margin-bottom:12px;opacity:.5;}
+.graph-canvas{width:100%;height:calc(100% - 32px);background:#1a1a1a;}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center;}
+.modal.active{display:flex;}
+.modal-content{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);width:420px;max-height:80vh;overflow-y:auto;}
+.modal-header{padding:16px;border-bottom:1px solid var(--border);font-weight:600;display:flex;justify-content:space-between;align-items:center;}
+.modal-close{background:none;border:none;color:var(--text-light);font-size:1.2rem;cursor:pointer;}
+.modal-body{padding:16px;}
+.param-option,.axis-option{padding:10px;border-bottom:1px solid var(--border);cursor:pointer;transition:.2s;}
+.param-option:hover,.axis-option:hover{background:rgba(0,122,204,.2);color:#fff;}
+.fullscreen-graph{display:none;position:fixed;inset:0;background:#000;z-index:2000;padding:20px;}
+.fullscreen-graph.active{display:block;}
+.fullscreen-close{position:absolute;top:16px;right:16px;background:rgba(255,255,255,.1);border:none;color:#fff;width:36px;height:36px;border-radius:50%;font-size:1.2rem;cursor:pointer;}
+button{background:var(--accent);color:#fff;border:none;border-radius:4px;padding:8px 16px;cursor:pointer;}
+button:hover{filter:brightness(1.2);}
+input,select{background:#333;color:#fff;border:1px solid var(--border);border-radius:4px;padding:6px;margin:4px 0;}
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<div class="sidebar">
+  <div class="sidebar-icon active" data-tab="setup"><i class="fas fa-cogs"></i></div>
+  <div class="sidebar-icon" data-tab="dashboard"><i class="fas fa-tachometer-alt"></i></div>
+</div>
+
+<!-- Main -->
+<div class="main">
+  <div class="header"><span id="tab-title">Setup</span></div>
+
+  <!-- SETUP TAB -->
+  <div class="content" id="setup-tab">
+    <div style="grid-column:1/-1;padding:20px;">
+      <h2>MQTT Connection</h2>
+      <input id="mqtt-host" placeholder="Host" value="broker.hivemq.com" style="width:100%;">
+      <div style="display:flex;gap:8px;">
+        <input id="mqtt-port" type="number" value="8000" style="width:80px;">
+        <input id="mqtt-topic" placeholder="Topic" value="f1/telemetry" style="flex:1;">
+      </div>
+      <button id="mqtt-connect">Connect</button>
+      <button id="mqtt-disconnect" disabled>Disconnect</button>
+      <span id="mqtt-status" style="margin-left:12px;color:#f48771;">Disconnected</span>
+    </div>
+  </div>
+
+  <!-- DASHBOARD TAB -->
+  <div class="content" id="dashboard-tab" style="display:none;">
+    <div class="side-a" id="param-grid"></div>
+    <div class="side-b" id="graph-grid"></div>
+  </div>
+</div>
+
+<!-- Parameter Modal -->
+<div class="modal" id="param-modal">
+  <div class="modal-content">
+    <div class="modal-header"><span>Select Parameter</span><button class="modal-close">x</button></div>
+    <div class="modal-body" id="param-options">
+      <div class="param-option" data-param="adxl1_x">ADXL1 X</div>
+      <div class="param-option" data-param="adxl1_y">ADXL1 Y</div>
+      <div class="param-option" data-param="adxl1_z">ADXL1 Z</div>
+      <div class="param-option" data-param="adxl2_x">ADXL2 X</div>
+      <div class="param-option" data-param="adxl2_y">ADXL2 Y</div>
+      <div class="param-option" data-param="adxl2_z">ADXL2 Z</div>
+      <div class="param-option" data-param="mpu_acc_x">MPU Acc X</div>
+      <div class="param-option" data-param="mpu_acc_y">MPU Acc Y</div>
+      <div class="param-option" data-param="mpu_acc_z">MPU Acc Z</div>
+      <div class="param-option" data-param="mpu_gyro_x">MPU Gyro X</div>
+      <div class="param-option" data-param="mpu_gyro_y">MPU Gyro Y</div>
+      <div class="param-option" data-param="mpu_gyro_z">MPU Gyro Z</div>
+    </div>
+  </div>
+</div>
+
+<!-- Graph Modal -->
+<div class="modal" id="graph-modal">
+  <div class="modal-content">
+    <div class="modal-header"><span>Configure Graph</span><button class="modal-close">x</button></div>
+    <div class="modal-body">
+      <label>X-Axis:</label>
+      <div id="x-options" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;"></div>
+      <label>Y-Axis (Ctrl+click):</label>
+      <select id="y-select" multiple size="6" style="width:100%;"></select>
+      <button id="apply-graph" style="margin-top:12px;width:100%;">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- Fullscreen -->
+<div class="fullscreen-graph" id="fullscreen-graph">
+  <button class="fullscreen-close">x</button>
+  <canvas id="fs-canvas"></canvas>
+</div>
+
+<!-- Load mqtt.js FIRST -->
+<script src="https://unpkg.com/mqtt@5.7.0/dist/mqtt.min.js"></script>
+
+<script>
+// Global state
+const state = { client: null, connected: false, params: {}, graphs: [] };
+window.totalDistance = 0;
+
+// Tab switching
+document.querySelectorAll('.sidebar-icon').forEach(ic => {
+  ic.addEventListener('click', () => {
+    document.querySelectorAll('.sidebar-icon').forEach(i => i.classList.remove('active'));
+    ic.classList.add('active');
+    const tab = ic.dataset.tab;
+    document.getElementById('tab-title').textContent = tab === 'setup' ? 'Setup' : 'Dashboard';
+    document.getElementById('setup-tab').style.display = tab === 'setup' ? 'grid' : 'none';
+    document.getElementById('dashboard-tab').style.display = tab === 'dashboard' ? 'grid' : 'none';
+  });
+});
+
+// MQTT Connect
+document.getElementById('mqtt-connect').onclick = () => {
+  const host = document.getElementById('mqtt-host').value.trim() || 'broker.hivemq.com';
+  const port = parseInt(document.getElementById('mqtt-port').value) || 8000;
+  const topic = document.getElementById('mqtt-topic').value.trim() || 'f1/telemetry';
+  const status = document.getElementById('mqtt-status');
+
+  status.textContent = 'Connecting...';
+  status.style.color = '#ffa726';
+
+  const url = `ws://${host}:${port}/mqtt`;
+  const client = mqtt.connect(url, {
+    clientId: 'web_' + Math.random().toString(16).substr(2, 8),
+    reconnectPeriod: 1000
+  });
+
+  client.on('connect', () => {
+    state.client = client;
+    state.connected = true;
+    client.subscribe(topic, err => {
+      if (!err) {
+        status.textContent = 'Connected';
+        status.style.color = '#7ec699';
+        document.getElementById('mqtt-connect').disabled = true;
+        document.getElementById('mqtt-disconnect').disabled = false;
+      }
+    });
+  });
+
+  client.on('message', (t, msg) => {
+    try {
+      const data = JSON.parse(msg.toString());
+      updateDashboard(data);
+    } catch (e) {
+      console.warn('Invalid JSON:', msg.toString());
+    }
+  });
+
+  client.on('error', err => {
+    status.textContent = 'Error: ' + err.message;
+    status.style.color = '#f48771';
+  });
+};
+
+document.getElementById('mqtt-disconnect').onclick = () => {
+  if (state.client) state.client.end();
+  state.connected = false;
+  document.getElementById('mqtt-status').textContent = 'Disconnected';
+  document.getElementById('mqtt-status').style.color = '#f48771';
+  document.getElementById('mqtt-connect').disabled = false;
+  document.getElementById('mqtt-disconnect').disabled = true;
+};
+
+// Update UI
+function updateDashboard(data) {
+  // Update tiles
+  Object.entries(state.params).forEach(([key, obj]) => {
+    if (data[key] !== undefined) {
+      const val = data[key];
+      obj.min = Math.min(obj.min, val);
+      obj.max = Math.max(obj.max, val);
+      obj.tile.querySelector('.value').textContent = Number(val.toFixed(2));
+      obj.tile.querySelector('.min span').nextSibling.textContent = obj.min.toFixed(2);
+      obj.tile.querySelector('.max span').nextSibling.textContent = obj.max.toFixed(2);
+    }
+  });
+
+  // Distance
+  if (data.speed !== undefined) {
+    window.totalDistance += (data.speed / 3.6) * 0.1;
+    if (state.params.distance) {
+      state.params.distance.tile.querySelector('.value').textContent = window.totalDistance.toFixed(1);
+    }
+  }
+
+  // Graphs
+  state.graphs.forEach(g => {
+    const x = g.x === 'time' ? Date.now() : data[g.x];
+    if (x === undefined) return;
+    const y = {};
+    g.ys.forEach(k => { if (data[k] !== undefined) y[k] = data[k]; });
+    if (Object.keys(y).length) {
+      g.data.push({ x, y });
+      if (g.data.length > 300) g.data.shift();
+      drawGraph(g);
+    }
+  });
+}
+
+// Parameter Tiles
+const paramGrid = document.getElementById('param-grid');
+for (let i = 0; i < 6; i++) {
+  const tile = document.createElement('div');
+  tile.className = 'param-tile empty';
+  tile.innerHTML = `<div class="add-btn">+</div><div style="font-size:.8rem;margin-top:8px;">Click</div>`;
+  tile.onclick = () => {
+    state.currentTile = tile;
+    document.getElementById('param-modal').classList.add('active');
+  };
+  paramGrid.appendChild(tile);
+}
+
+document.querySelectorAll('.param-option').forEach(opt => {
+  opt.onclick = () => {
+    const key = opt.dataset.param;
+    const name = opt.textContent;
+    state.currentTile.className = 'param-tile';
+    state.currentTile.innerHTML = `
+      <div style="font-size:.8rem;opacity:.7;margin-bottom:4px;">${name}</div>
+      <div class="value">--</div>
+      <div class="minmax">
+        <div class="min"><span>Min:</span> --</div>
+        <div class="max"><span>Max:</span> --</div>
+      </div>`;
+    state.params[key] = { tile: state.currentTile, min: Infinity, max: -Infinity };
+    document.getElementById('param-modal').classList.remove('active');
+  };
+});
+
+// Graphs
+const graphGrid = document.getElementById('graph-grid');
+for (let i = 0; i < 4; i++) {
+  const cont = document.createElement('div');
+  cont.className = 'graph-container';
+  cont.innerHTML = `
+    <div class="graph-header">
+      <span>Graph ${i+1}</span>
+      <div class="graph-menu">
+        <button class="mode-btn active" data-mode="scroll">Scroll</button>
+        <button class="mode-btn" data-mode="full">Full</button>
+        <button class="fs-btn">Fullscreen</button>
+      </div>
+    </div>
+    <div class="graph-placeholder"><div class="add-btn">+</div><div>Click</div></div>`;
+  cont.querySelector('.graph-placeholder').onclick = () => openGraphModal(cont);
+  cont.querySelector('.fs-btn').onclick = () => openFullscreen(cont);
+  graphGrid.appendChild(cont);
+}
+
+function openGraphModal(cont) {
+  state.currentGraph = cont;
+  const xDiv = document.getElementById('x-options'); xDiv.innerHTML = '';
+  const ySel = document.getElementById('y-select'); ySel.innerHTML = '';
+  const axes = ['timestamp','adxl1_x','adxl1_y','adxl1_z','adxl2_x','adxl2_y','adxl2_z',
+                'mpu_acc_x','mpu_acc_y','mpu_acc_z','mpu_gyro_x','mpu_gyro_y','mpu_gyro_z'];
+  axes.forEach(a => {
+    const d = document.createElement('div');
+    d.className = 'axis-option';
+    d.textContent = a.charAt(0).toUpperCase() + a.slice(1);
+    d.onclick = () => { document.querySelectorAll('#x-options .axis-option').forEach(x=>x.style.background=''); d.style.background='var(--accent)'; state.graphX = a; };
+    xDiv.appendChild(d);
+    const o = document.createElement('option');
+    o.value = a; o.textContent = a.charAt(0).toUpperCase() + a.slice(1);
+    ySel.appendChild(o);
+  });
+  document.getElementById('graph-modal').classList.add('active');
+}
+
+document.getElementById('apply-graph').onclick = () => {
+  const ys = Array.from(document.getElementById('y-select').selectedOptions).map(o => o.value);
+  if (!state.graphX || ys.length === 0) return;
+  const ph = state.currentGraph.querySelector('.graph-placeholder');
+  ph.innerHTML = `<canvas class="graph-canvas"></canvas>`;
+  const cv = ph.querySelector('canvas');
+  const ctx = cv.getContext('2d');
+  const g = { container: state.currentGraph, canvas: cv, ctx, x: state.graphX, ys, data: [], maxPoints: 300 };
+  state.graphs.push(g);
+  document.getElementById('graph-modal').classList.remove('active');
+};
+
+function drawGraph(g) {
+  const w = g.canvas.width = g.canvas.parentNode.clientWidth;
+  const h = g.canvas.height = g.canvas.parentNode.clientHeight;
+  g.ctx.clearRect(0,0,w,h);
+  if (g.data.length < 2) return;
+  const pad = 30, iw = w-2*pad, ih = h-2*pad;
+  let xmin = Infinity, xmax = -Infinity;
+  g.data.forEach(p => { xmin = Math.min(xmin, p.x); xmax = Math.max(xmax, p.x); });
+  if (xmin === xmax) return;
+  const colors = ['#66bb6a','#ffa726','#ef5350','#42a5f5'];
+  let ci = 0;
+  g.ys.forEach(y => {
+    const vals = g.data.map(p => p.y[y]).filter(v => v !== undefined);
+    if (vals.length < 2) return;
+    const ymin = Math.min(...vals), ymax = Math.max(...vals);
+    if (ymin === ymax) return;
+    g.ctx.strokeStyle = colors[ci++ % colors.length];
+    g.ctx.lineWidth = 2;
+    g.ctx.beginPath();
+    g.data.forEach((p,i) => {
+      if (p.y[y] === undefined) return;
+      const px = pad + ((p.x-xmin)/(xmax-xmin))*iw;
+      const py = pad + ih - ((p.y[y]-ymin)/(ymax-ymin))*ih;
+      i===0 ? g.ctx.moveTo(px,py) : g.ctx.lineTo(px,py);
+    });
+    g.ctx.stroke();
+  });
+}
+
+function openFullscreen(cont) {
+  const g = state.graphs.find(x => x.container === cont);
+  if (!g) return;
+  const fs = document.getElementById('fullscreen-graph');
+  const cv = document.getElementById('fs-canvas');
+  fs.classList.add('active');
+  const ctx = cv.getContext('2d');
+  const resize = () => {
+    cv.width = fs.clientWidth - 40; cv.height = fs.clientHeight - 40;
+    drawGraph({ ...g, canvas: cv, ctx });
+  };
+  resize();
+  const obs = new ResizeObserver(resize); obs.observe(fs);
+  document.querySelector('.fullscreen-close').onclick = () => { fs.classList.remove('active'); obs.disconnect(); };
+}
+
+// Close modals
+document.querySelectorAll('.modal-close, .modal').forEach(el => {
+  el.onclick = e => { if (e.target === el || e.target.classList.contains('modal-close')) document.querySelectorAll('.modal').forEach(m => m.classList.remove('active')); };
+});
+
+// Auto-open dashboard
+setTimeout(() => document.querySelector('[data-tab="dashboard"]').click(), 200);
+</script>
+</body>
+</html>
